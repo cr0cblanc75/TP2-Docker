@@ -51,12 +51,13 @@ jobs:
                   distribution: "temurin"
 
             - name: Run SonarQube analysis
-              uses: SonarSource/sonarqube-scan-action@v6
-              env:
-                  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-                  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-              with:
-                  projectBaseDir: ./backend
+              run: |
+                  mvn -B verify sonar:sonar \
+                    -Dsonar.projectKey=cr0cblanc75_TP2-Docker \
+                    -Dsonar.organization=cr0cblanc75 \
+                    -Dsonar.host.url=https://sonarcloud.io \
+                    -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+                    --file ./backend/pom.xml
 
     # ==========================================
     # 3. BUILD BACKEND IMAGE
