@@ -94,7 +94,7 @@ jobs:
         runs-on: ubuntu-24.04
 
         # Push only when the workflow runs on main
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
 
         steps:
             # Download the Docker images
