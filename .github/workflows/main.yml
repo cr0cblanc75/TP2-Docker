@@ -52,7 +52,7 @@ jobs:
 
             - name: Run SonarQube analysis
               run: |
-                  mvn -B verify sonar:sonar \
+                  mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
                     -Dsonar.projectKey=cr0cblanc75_TP2-Docker \
                     -Dsonar.organization=cr0cblanc75 \
                     -Dsonar.host.url=https://sonarcloud.io \
