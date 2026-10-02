@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - master
   # Also launch the job for pull requests
   pull_request:
 
