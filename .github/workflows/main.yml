@@ -1,46 +1,74 @@
 name: CI TP2-Docker
 
 on:
-    # Launch this job when pushing to main or master
+    # Run on every push to main or master
     push:
         branches:
             - main
             - master
 
-    # Also launch the job for pull requests
+    # Also run on pull requests
     pull_request:
 
 jobs:
+    # ==========================================
+    # 1. TEST BACKEND
+    # ==========================================
     test-backend:
         runs-on: ubuntu-24.04
 
         steps:
-            # Checkout your GitHub code
             - name: Checkout code
               uses: actions/checkout@v4
 
-            # Setup JDK 21
             - name: Set up JDK 21
               uses: actions/setup-java@v4
               with:
                   java-version: "21"
                   distribution: "temurin"
 
-            # Build and test the application with Maven
             - name: Build and test with Maven
               run: mvn clean verify
               working-directory: ./backend
 
-    build-docker-images:
+    # ==========================================
+    # 2. SONARQUBE
+    # ==========================================
+    sonar:
         needs: test-backend
         runs-on: ubuntu-24.04
 
         steps:
-            # Checkout your GitHub code
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Set up JDK 21
+              uses: actions/setup-java@v4
+              with:
+                  java-version: "21"
+                  distribution: "temurin"
+
+            - name: Run SonarQube analysis
+              uses: SonarSource/sonarqube-scan-action@v6
+              env:
+                  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+                  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+              with:
+                  projectBaseDir: ./backend
+
+    # ==========================================
+    # 3. BUILD BACKEND IMAGE
+    # ==========================================
+    build-backend:
+        needs: test-backend
+        runs-on: ubuntu-24.04
+
+        steps:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            # Build backend image
             - name: Build backend image
               uses: docker/build-push-action@v6
               with:
@@ -48,7 +76,29 @@ jobs:
                   tags: ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-back:latest
                   load: true
 
-            # Build database image
+            - name: Save backend image
+              run: |
+                  docker save \
+                    ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-back:latest \
+                    -o backend.tar
+
+            - name: Upload backend image
+              uses: actions/upload-artifact@v4
+              with:
+                  name: backend-image
+                  path: backend.tar
+
+    # ==========================================
+    # 4. BUILD DATABASE IMAGE
+    # ==========================================
+    build-database:
+        needs: test-backend
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
             - name: Build database image
               uses: docker/build-push-action@v6
               with:
@@ -56,7 +106,29 @@ jobs:
                   tags: ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-db:latest
                   load: true
 
-            # Build httpd image
+            - name: Save database image
+              run: |
+                  docker save \
+                    ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-db:latest \
+                    -o database.tar
+
+            - name: Upload database image
+              uses: actions/upload-artifact@v4
+              with:
+                  name: database-image
+                  path: database.tar
+
+    # ==========================================
+    # 5. BUILD HTTPD IMAGE
+    # ==========================================
+    build-httpd:
+        needs: test-backend
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
             - name: Build httpd image
               uses: docker/build-push-action@v6
               with:
@@ -64,64 +136,104 @@ jobs:
                   tags: ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-front:latest
                   load: true
 
-            # Save Docker images as .tar files
-            - name: Save Docker images
+            - name: Save httpd image
               run: |
-                  docker save \
-                    ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-back:latest \
-                    -o backend.tar
-
-                  docker save \
-                    ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-db:latest \
-                    -o database.tar
-
                   docker save \
                     ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-front:latest \
                     -o httpd.tar
 
-            # Upload Docker images to GitHub Actions
-            - name: Upload Docker images
+            - name: Upload httpd image
               uses: actions/upload-artifact@v4
               with:
-                  name: docker-images
-                  path: |
-                      backend.tar
-                      database.tar
-                      httpd.tar
+                  name: httpd-image
+                  path: httpd.tar
 
-    push-docker-images:
-        needs: build-docker-images
+    # ==========================================
+    # 6. PUSH BACKEND IMAGE
+    # ==========================================
+    push-backend:
+        needs: build-backend
         runs-on: ubuntu-24.04
 
-        # Push only when the workflow runs on main
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
 
         steps:
-            # Download the Docker images
-            - name: Download Docker images
+            - name: Download backend image
               uses: actions/download-artifact@v4
               with:
-                  name: docker-images
+                  name: backend-image
 
-            # Load the Docker images into Docker
-            - name: Load Docker images
-              run: |
-                  docker load -i backend.tar
-                  docker load -i database.tar
-                  docker load -i httpd.tar
+            - name: Load backend image
+              run: docker load -i backend.tar
 
-            # Login to Docker Hub
             - name: Login to DockerHub
-              run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login --username ${{ secrets.DOCKER_USERNAME }} --password-stdin
+              run: |
+                  echo "${{ secrets.DOCKER_PASSWORD }}" | \
+                  docker login \
+                    --username ${{ secrets.DOCKER_USERNAME }} \
+                    --password-stdin
 
-            # Push backend image
             - name: Push backend image
-              run: docker push ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-back:latest
+              run: |
+                  docker push \
+                    ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-back:latest
 
-            # Push database image
+    # ==========================================
+    # 7. PUSH DATABASE IMAGE
+    # ==========================================
+    push-database:
+        needs: build-database
+        runs-on: ubuntu-24.04
+
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+
+        steps:
+            - name: Download database image
+              uses: actions/download-artifact@v4
+              with:
+                  name: database-image
+
+            - name: Load database image
+              run: docker load -i database.tar
+
+            - name: Login to DockerHub
+              run: |
+                  echo "${{ secrets.DOCKER_PASSWORD }}" | \
+                  docker login \
+                    --username ${{ secrets.DOCKER_USERNAME }} \
+                    --password-stdin
+
             - name: Push database image
-              run: docker push ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-db:latest
+              run: |
+                  docker push \
+                    ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-db:latest
 
-            # Push httpd image
+    # ==========================================
+    # 8. PUSH HTTPD IMAGE
+    # ==========================================
+    push-httpd:
+        needs: build-httpd
+        runs-on: ubuntu-24.04
+
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+
+        steps:
+            - name: Download httpd image
+              uses: actions/download-artifact@v4
+              with:
+                  name: httpd-image
+
+            - name: Load httpd image
+              run: docker load -i httpd.tar
+
+            - name: Login to DockerHub
+              run: |
+                  echo "${{ secrets.DOCKER_PASSWORD }}" | \
+                  docker login \
+                    --username ${{ secrets.DOCKER_USERNAME }} \
+                    --password-stdin
+
             - name: Push httpd image
-              run: docker push ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-front:latest
+              run: |
+                  docker push \
+                    ${{ secrets.DOCKER_USERNAME }}/tp2-docker-devops-front:latest
